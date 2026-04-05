@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>手势交互汉字拆分与字帖</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script>window.__APP_ROOT__ = {{ (request.script_root or '') | tojson }};</script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-title">参数列表</div>
+
+      <section class="group">
+        <div class="single-input">
+          <div class="text-input-wrap">
+            <div id="countHint" class="count-hint">0/500</div>
+            <textarea id="charInput" maxlength="500" rows="2" placeholder="输入一段话（最多500字）"></textarea>
+          </div>
+          <button id="btnApply" class="btn primary" type="button">应用</button>
+        </div>
+        <div class="text-preview empty" id="textPreview" aria-label="输入内容预览">输入内容会在这里预览（过长可点击展开）</div>
+      </section>
+
+      <section class="group">
+        <div class="group-title row-between">
+          <span>常用字符</span>
+          <button id="btnClearHistory" class="btn tiny ghost" type="button">清空</button>
+        </div>
+        <div class="chip-grid chip-scroll" id="presetChars" aria-label="历史输入字符列表"></div>
+      </section>
+
+      <section class="group">
+        <div class="group-title">缩放 <span id="zoomLabel" class="muted">1.00x</span></div>
+        <input id="zoomRange" type="range" min="0.6" max="3" step="0.01" value="1" />
+        <div class="zoom-actions">
+          <button id="btnMinus" class="btn ghost" type="button">-</button>
+          <button id="btnPlus" class="btn ghost" type="button">+</button>
+        </div>
+      </section>
+
+      <section class="group">
+        <div class="group-title">字体参数调整（可对单个选中项生效）</div>
+        <div class="font-grid">
+          <label>字号</label>
+          <input id="fontSizeRange" type="range" min="16" max="120" step="1" value="42" />
+          <label>粗细</label>
+          <input id="fontWeightRange" type="range" min="100" max="950" step="50" value="900" />
+          <label>颜色</label>
+          <input id="fontColor" type="color" value="#111111" />
+          <label>透明度</label>
+          <input id="fontOpacityRange" type="range" min="0.1" max="1" step="0.01" value="1" />
+        </div>
+        <div class="zoom-actions">
+          <button id="btnApplyStyleSelected" class="btn ghost" type="button">应用到选中</button>
+          <button id="btnApplyStyleAll" class="btn ghost" type="button">应用到全部</button>
+        </div>
+      </section>
+
+      <section class="group">
+        <div class="group-title">字体（本机字体名）</div>
+        <div class="single-input">
+          <input id="fontInput" placeholder="例如：Microsoft YaHei / 霞鹜文楷" />
+          <button id="btnFontApply" class="btn ghost" type="button">应用</button>
+        </div>
+      </section>
+
+      <section class="group">
+        <button id="btnToggle" class="btn block" type="button">拆分字部件</button>
+        <button id="btnReset" class="btn block ghost" type="button">重置</button>
+      </section>
+
+      <section class="group">
+        <div class="group-title">字帖背景（主舞台）</div>
+        <div class="copy-tpl-row">
+          <button class="btn tiny ghost copy-tpl-opt" data-tpl="none" type="button">无</button>
+          <button class="btn tiny ghost copy-tpl-opt" data-tpl="tian" type="button">田字格</button>
+          <button class="btn tiny ghost copy-tpl-opt" data-tpl="square" type="button">方格</button>
+          <button class="btn tiny ghost copy-tpl-opt" data-tpl="lines" type="button">横线</button>
+        </div>
+        <div class="group-title" style="margin-top:10px">字帖导出</div>
+        <div class="copy-export-row">
+          <button id="btnExportPng" class="btn tiny ghost" type="button">PNG</button>
+          <button id="btnExportJpg" class="btn tiny ghost" type="button">JPG</button>
+          <button id="btnExportPdf" class="btn tiny ghost" type="button">PDF</button>
+          <button id="btnPrintCopy" class="btn tiny ghost" type="button">打印</button>
+          <button id="btnShareCopy" class="btn tiny ghost" type="button">分享</button>
+          <button id="btnSavePsd" class="btn tiny ghost" type="button">本地</button>
+        </div>
+      </section>
+
+      <section class="group">
+        <div class="group-title row-between">
+          <span>历史输入内容</span>
+          <button id="btnClearTextHistory" class="btn tiny ghost" type="button">清空</button>
+        </div>
+        <div id="textHistoryList" class="history-list" aria-label="历史输入内容"></div>
+      </section>
+
+      <section class="group">
+        <div class="group-title row-between">
+          <span>自由飘动</span>
+          <label class="switch">
+            <input id="togglePhysics" type="checkbox" checked />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="group-title">手势灵敏度 <span id="sensLabel" class="muted">中</span></div>
+        <input id="sensRange" type="range" min="0.5" max="2" step="0.01" value="1" />
+        <div class="group-title row-between" style="margin-top:10px">
+          <span>手势锁定</span>
+          <button id="btnGestureLock" class="btn tiny ghost" type="button">解锁</button>
+        </div>
+      </section>
+
+      <div class="sidebar-footnote">
+        手势：捏合按顺序选中（黄）并拖拽；中指清除选中；双手缩放；单手张开拆分/合并。
+      </div>
+    </aside>
+
+    <main class="stage">
+      <div class="stage-card">
+        <div class="stage-main">
+          <div class="stage-actions">
+            <button id="btnRadicalResetOrder" class="btn tiny ghost" type="button">恢复部首初始顺序</button>
+            <button id="btnFixOpenTop" class="btn tiny ghost" type="button">纠错库</button>
+          </div>
+          <div class="char-container">
+            <div id="copybookGridOverlay" class="copybook-stage-overlay" aria-hidden="true"></div>
+            <div id="charMain" class="char-main">春</div>
+            <div id="charSplit" class="char-split"></div>
+            <div id="loadingOverlay" class="loading-overlay" aria-live="polite">
+              <div class="spinner" aria-label="加载中"></div>
+              <div class="loading-text">正在拆分部首...</div>
+            </div>
+          </div>
+
+          <div class="camera-float" aria-label="手势摄像头窗口">
+            <div class="camera-header">手势</div>
+            <div class="camera-body">
+              <video id="video" autoplay playsinline muted></video>
+              <canvas id="canvas"></canvas>
+              <div id="status" class="camera-status">初始化中...</div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="radical-panel" aria-label="偏旁部首与笔画面板">
+          <div class="right-shell">
+            <div class="right-tabs-vertical">
+              <button id="tabRadical" class="tab-vert active" type="button">偏旁部首</button>
+              <button id="tabStroke" class="tab-vert" type="button">笔画</button>
+              <button id="tabCustom" class="tab-vert" type="button">自定义拆解</button>
+            </div>
+
+            <div class="right-pages">
+              <div id="pageRadicals" class="right-page active">
+                <div class="radical-title">偏旁部首</div>
+                <div class="custom-picked" style="margin-bottom:10px;font-size:12px">当前选中部首：<span id="pickedRadical">未选择</span></div>
+
+                <div class="detected-bar">
+                  <div class="detected-title">本句拆解：</div>
+                  <div id="detectedRadicals" class="detected-tags"></div>
+                </div>
+
+                <div class="radical-section">
+                  <div class="radical-section-title">201 个主部首</div>
+                  <div class="radical-grid" id="radicalGridMain" aria-label="201个主部首"></div>
+                </div>
+                <div class="radical-section">
+                  <div class="radical-section-title">99 个附形部首</div>
+                  <div class="radical-grid" id="radicalGridAffix" aria-label="99个附形部首"></div>
+                </div>
+              </div>
+
+              <div id="pageStrokes" class="right-page">
+                <div class="radical-title">笔画分解</div>
+                <div class="detected-bar">
+                  <div class="detected-title">本句笔画拆解：</div>
+                  <div id="detectedStrokes" class="detected-tags"></div>
+                </div>
+                <!-- <div class="detected-bar">
+                  <div class="detected-title row-between">
+                    <span>纠错库</span>
+                    <button id="btnFixOpenStroke" class="btn tiny ghost" type="button">纠错提交</button>
+                  </div>
+                  <div class="custom-status">笔画拆分不准时可在此修正（保存到本地，优先级最高）。</div>
+                </div> -->
+                <div class="radical-section">
+                  <div class="radical-section-title">32种基础笔画</div>
+                  <div class="radical-grid" id="strokeGridBase" aria-label="32种基础笔画"></div>
+                </div>
+              </div>
+
+              <div id="pageCustom" class="right-page">
+                <div class="radical-title">自定义拆解</div>
+
+                <div class="custom-style">
+                  <div class="custom-title">常规方式上传</div>
+                  <div class="custom-status">限制：PNG、≤200×200 像素、透明底。仅支持按「偏旁部首」或「笔画」上传；支持批量，绑定后可复用。</div>
+                  <button type="button" id="btnOpenRegularUpload" class="btn block">打开常规上传</button>
+                </div>
+
+                <div class="custom-style">
+                  <div class="custom-title">自定义方式上传（批量，内含公用组）</div>
+                  <div class="custom-status">限制：PNG、≤200×200；每字最多 10 张槽位。弹窗内先传公用部件，再传各字独有部件。</div>
+                  <button type="button" id="btnOpenCustomUpload" class="btn block ghost">打开上传</button>
+                </div>
+                <div class="custom-style">
+                  <div class="custom-title">已上传部件一览</div>
+                  <div id="customPartsSummary" class="custom-parts-summary"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <!-- 全文遮罩 -->
+  <div id="textOverlay" class="overlay" aria-hidden="true">
+    <div class="overlay-card" role="dialog" aria-modal="true" aria-label="全文展示">
+      <div class="overlay-head">
+        <div class="overlay-title">全文</div>
+        <button id="btnOverlayClose" class="btn tiny ghost" type="button">关闭</button>
+      </div>
+      <div id="overlayText" class="overlay-body"></div>
+    </div>
+  </div>
+
+  <!-- 纠错遮罩 -->
+  <div id="fixOverlay" class="overlay" aria-hidden="true">
+    <div class="overlay-card" role="dialog" aria-modal="true" aria-label="纠错提交">
+      <div class="overlay-head">
+        <div class="overlay-title">纠错提交</div>
+        <button id="btnFixClose" class="btn tiny ghost" type="button">关闭</button>
+      </div>
+      <div class="overlay-body">
+        <div class="group-title">纠错类别</div>
+        <div class="copybook-options">
+          <button id="fixTypeRadical" class="btn ghost" type="button">部首偏旁纠错</button>
+          <button id="fixTypeStroke" class="btn ghost" type="button">笔画纠错</button>
+        </div>
+        <div class="group-title">汉字（支持单个或多个）</div>
+        <input id="fixChar" placeholder="例如：随 或 春风" class="fix-char" />
+        <div class="group-title" style="margin-top:0px">已选择项（可手动补充输入）</div>
+        <textarea id="fixRadicals" rows="2" placeholder="点击下方可选项自动填充，也可手动输入" class="fix-radicals"></textarea>
+        <div class="group-title" style="margin-top:0px">选择部首/笔画</div>
+        <div id="fixRadicalPicker" class="fix-picker" aria-label="纠错部首选择器"></div>
+        <div style="display:flex;gap:8px;margin-top:0px;flex-wrap:wrap">
+          <button id="btnFixSave" class="btn primary" type="button">保存纠错</button>
+          <button id="btnFixDelete" class="btn ghost" type="button">删除该字纠错</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 常规方式上传 -->
+  <div id="regularUploadOverlay" class="overlay" aria-hidden="true">
+    <div class="overlay-card overlay-card-wide" role="dialog" aria-modal="true" aria-label="常规方式上传">
+      <div class="overlay-head">
+        <div class="overlay-title">常规方式上传</div>
+        <button id="btnRegularUploadClose" class="btn tiny ghost" type="button">关闭</button>
+      </div>
+      <div class="overlay-body upload-modal-split">
+        <div class="upload-modal-main">
+          <div id="regularContextHint" class="custom-status" style="margin-bottom:10px"></div>
+          <div class="custom-status" style="margin-bottom:10px">格式 PNG，尺寸 ≤200×200，透明底。请选择上传类型后在下方点选部首或笔画，再选择文件（可多选）。</div>
+          <div class="copybook-options" style="margin-bottom:10px">
+            <button type="button" id="regularSubRadical" class="btn ghost">按偏旁部首上传</button>
+            <button type="button" id="regularSubStroke" class="btn ghost">按笔画上传</button>
+          </div>
+          <div id="regularRadicalBlock">
+            <div class="group-title">选择部首（点选）</div>
+            <div id="regularRadicalPicker" class="fix-picker fix-picker-tall"></div>
+            <div class="custom-picked">当前：<span id="regularPickedRadicalLabel">未选择</span></div>
+          </div>
+          <div id="regularStrokeBlock" style="display:none">
+            <div class="group-title">选择笔画（点选）</div>
+            <div id="regularStrokePicker" class="fix-picker fix-picker-tall"></div>
+            <div class="custom-picked">当前：<span id="regularPickedStrokeLabel">未选择</span></div>
+          </div>
+          <div class="custom-upload" style="margin-top:12px">
+            <input id="regularFileInput" type="file" accept="image/png" multiple />
+            <div class="custom-status">多文件时：可用「部首名.png」或「笔画符号.png」命名以自动匹配；否则首张绑定到当前选中项。</div>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+            <button type="button" id="btnRegularApply" class="btn primary">上传并绑定</button>
+            <button type="button" id="btnRegularClearOne" class="btn ghost">清除当前选中样式</button>
+            <button type="button" id="btnRegularClearAllRad" class="btn tiny ghost">清空全部部首自定义</button>
+            <button type="button" id="btnRegularClearAllStr" class="btn tiny ghost">清空全部笔画自定义</button>
+          </div>
+        </div>
+        <div class="upload-modal-side">
+          <div class="group-title">线稿库 / 已上传（点击绑定到左侧当前选中）</div>
+          <div id="regularReuseGallery" class="line-gallery line-gallery-tall"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 自定义方式上传 -->
+  <div id="customUploadOverlay" class="overlay" aria-hidden="true">
+    <div class="overlay-card overlay-card-wide" role="dialog" aria-modal="true" aria-label="自定义方式上传">
+      <div class="overlay-head">
+        <div class="overlay-title">自定义方式上传</div>
+        <button id="btnCustomUploadClose" class="btn tiny ghost" type="button">关闭</button>
+      </div>
+      <div class="overlay-body upload-modal-split">
+        <div class="upload-modal-main">
+          <div class="custom-status" style="margin-bottom:10px">PNG、≤200×200；<strong>同一组选字</strong>用于下面①②。① 公用槽位与各字② 其他槽位<strong>可同时存在</strong>，互不清除。每字最多 10 槽。</div>
+
+          <div class="group-title">句中汉字（点选；公用至少 2 字，非公用常为 1 字或不选）</div>
+          <div id="customUnifiedSentencePick" class="sentence-char-row"></div>
+
+          <div class="custom-upload-merged">
+            <div class="group-title">① 公用部件（多字共一张图，占一个槽位）</div>
+            <div class="custom-status" style="margin-bottom:8px">在上方选好<strong>至少两个字</strong>，填组名，选槽位，上传 1 张 PNG。之后可在② 为<strong>同一批字或其它字</strong>继续补非公用槽位。</div>
+            <div class="group-title">共用组名</div>
+            <input type="text" id="customCommonAlias" class="fix-char" style="width:100%;max-width:280px" placeholder="必填，如 common1" />
+            <div class="group-title">公用·槽位序号（1～10）</div>
+            <input type="number" id="customSharedSlot" min="1" max="10" value="1" class="fix-char" style="max-width:80px" />
+            <div class="custom-upload" style="margin-top:8px">
+              <input id="customSharedFile" type="file" accept="image/png" />
+            </div>
+            <div style="margin-top:8px">
+              <button type="button" id="btnCustomSharedApply" class="btn primary">上传公用组</button>
+            </div>
+
+            <div class="group-title" style="margin-top:16px;padding-top:12px;border-top:1px dashed var(--border-soft)">② 非公用部件（含在①同一流程内，可与①并存）</div>
+            <div class="custom-status" style="margin-bottom:8px">在上方<strong>只选一个字</strong>时可多选 PNG，从起始槽位连续写入（勿与①同槽冲突会覆盖）；<strong>不选字</strong>时用「汉字_序号.png」批量。</div>
+            <div class="group-title">非公用·起始槽位（1～10）</div>
+            <input type="number" id="customBatchSlot" min="1" max="10" value="1" class="fix-char" style="max-width:80px" />
+            <div class="custom-upload" style="margin-top:8px">
+              <input id="customBatchFiles" type="file" accept="image/png" multiple />
+            </div>
+            <div style="margin-top:8px">
+              <button type="button" id="btnCustomBatchApply" class="btn ghost">批量上传（非公用）</button>
+            </div>
+          </div>
+
+          <div class="group-title" style="margin-top:14px">清除所选字在某槽位的图</div>
+          <div class="custom-status" style="margin-bottom:6px">在上方选好要清除的字，再指定槽位。</div>
+          <input type="number" id="customClearSlot" min="1" max="10" value="1" class="fix-char" style="max-width:80px" />
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+            <button type="button" id="btnCustomModalClearSlot" class="btn ghost">清除该槽位</button>
+            <button type="button" id="btnCustomModalClearAll" class="btn tiny ghost">清空全部自定义拼装与共用组</button>
+          </div>
+        </div>
+        <div class="upload-modal-side">
+          <div class="group-title">已上传部件预览</div>
+          <div id="customModalPartsGallery" class="custom-modal-parts-gallery"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MediaPipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <!-- 字帖导出：按舞台区域 DOM 截图（所见即所得） -->
+  <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
+
+  <script src="{{ url_for('static', filename='gestures.js') }}"></script>
+</body>
+</html>
